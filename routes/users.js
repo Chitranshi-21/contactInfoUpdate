@@ -1,5 +1,5 @@
 var express = require('express');
-var router = express.Router();
+var router =  express.Router();
 const pool = require('../db/dbConfig');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
@@ -49,21 +49,161 @@ router.get('/JoinQuery',(request, response) => {
     response.render('welcome.ejs');
   })  
 
+//Login Page
+        router.get('/login',(request, response) => {
+        response.render('login.ejs');
+             })
+
+
+router.post('/loginPost',async (request, response) => {
+  
+  const {email, password} = request.body;
+  console.log('email : '+email+' passoword '+password);
+
+  let errors = [], userId, objUser, isUserExist = false;
+
+    if (!email || !password) {
+     errors.push({ msg: 'Please enter all fields' });
+     response.render('login',{errors});
+      }
+
+     await
+     pool
+    .query('SELECT Id, sfid,name, email FROM salesforce.Contact WHERE email = $1 AND password__c = $2',[email,password])
+    .then((loginResult) => {
+     console.log('loginResult.rows[0]  '+JSON.stringify(loginResult.rows[0]));
+      if(loginResult.rowCount > 0 )
+       {
+          userId = loginResult.rows[0].sfid;
+          objUser = loginResult.rows[0];
+         // isUserExist = true;
+          if(errors.length == 0){
+            const token = jwt.sign({ user : objUser }, process.env.TOKEN_SECRET, {
+              expiresIn: 8640000 // expires in 24 hours
+            });
+              response.cookie('jwt',token, { httpOnly: false, secure: false, maxAge: 3600000 });
+              response.header('auth-token', token).render('dashboard.ejs',{objUser}); 
+
+  //Contact Info Page
+
+             router.get('/ContactInfo',async (request, response) => {
+                await
+                pool
+            .query('SELECT sfid, name, Email, Phone, MailingPostalCode FROM salesforce.Contact WHERE email = $1 ',[email])
+            .then((contactQueryResult) => {
+             console.log('contactQueryResult.rows[0]  '+JSON.stringify(contactQueryResult.rows[0]));
+                if(contactQueryResult.rowCount > 0 )
+                {
+                  userId = contactQueryResult.rows[0].sfid;
+                  objUser2 = contactQueryResult.rows[0];
+                   response.render('contactInfoForm.ejs',{objUser2});
+                  }})
+                  .catch((InfoError) =>{
+                   console.log('InfoError   :  '+InfoError.stack);
+                    isUserExist = false;
+                    }); 
+                  });
+
+ //Contact Update
+
+             router.post('/postUpdate',async (request, response) => {
+               
+              let body = request.body;
+              userId = body.sfid;
+              console.log('body  '+JSON.stringify(body));
+          const { name, email, phone, pincode, user} = request.body;
+          console.log('name inside ' +name);
+          let contactUpdateQuery = 'UPDATE salesforce.Contact SET '+
+          'name = \''+name+'\', '+
+          'email = \''+email+'\' , '+
+          'phone = \''+phone+'\' , '+
+          'MailingPostalCode = \''+pincode+'\' '+
+          'WHERE sfid = $1';
+         console.log('contactUpdateQuery  '+contactUpdateQuery);       
+         await
+                   pool
+                   .query(contactUpdateQuery,[userId])
+                   .then((contactUpdateQueryResult)=>{
+                     console.log('contactUpdateQueryResult.rows : '+JSON.stringify(contactUpdateQueryResult));
+                       /******* Successfully  Updated*/
+                       response.redirect('/users/dashboard.ejs');
+                   })
+                   .catch((contactUpdateQueryError)=> {
+                     console.log('contactUpdateQueryError '+contactUpdateQueryError);
+                     response.render('contactInfoForm.ejs');
+                   })  
+
+                  })
+         
+             
+          }
+     //login Page Else     
+     else
+         {
+           response.render('login',{errors});
+        }
+       
+       }})
+        .catch((loginError) =>{
+         console.log('loginError   :  '+loginError.stack);
+          isUserExist = false;
+          });
+  
+        });
+     
+//Forgot Passowrd
+
+router.get('/forgotpassword',(req,res)=>{
+  res.render('forgotPassword');
+})
+
+
+router.post('/EmailVerification',(request,response)=>{
+  const {emailPass }= request.body;
+  let errors =[];
+  console.log('emailAddress' +emailPass);
+  let queryContact = 'SELECT sfid,email,name FROM salesforce.contact where email=$1' ;
+  console.log('querry Contact '+queryContact);
+  pool
+  .query(queryContact,[emailPass])
+  .then((querryResult)=>{
+        console.log('queryResult: '+JSON.stringify(querryResult.rows));
+        if(querryResult.rowCount==1)
+        {
+          response.send(querryResult.rows);
+        }
+        if(querryResult.rowCount == 0)
+        {
+          errors.push({ msg: 'This email does not exists'});
+          response.render('register',{errors}); 
+        }
+        else
+        {
+          response.send('This Email does not exist');
+        }
+  })
+  .catch((QueryError)=>{
+    console.log('Erros '+ QueryError.stack);
+    response.send('QueryError');
+  })
+})
+
 
 //sendEmail
 
-router.get('/send',(request, response) => {
-  response.render('form.ejs');
-})  
-router.post('/postsend',(request,response) => {
-  const {email} = request.body;
-  console.log('email :'+email);
+router.post('/send',(request, response) => {
+
+  let bodysent= request.body;
+  const {email,sfid ,name} = request.body;
+  console.log('emailId' +email);
+  console.log('sfid' +sfid);
+  console.log('name' +name);
   let errors = [], userId, objUser, isUserExist = false;
 
-  if (!email ) {
-    errors.push({ msg: 'Please enter Email ' });
-    response.render('form',{errors});
-  }
+        if (!email ) {
+        errors.push({ msg: 'Please enter Email ' });
+        response.render('form',{errors});
+        }
      // Step 1
      let transporter = nodemailer.createTransport({
      service: 'gmail',
@@ -77,105 +217,70 @@ router.post('/postsend',(request,response) => {
       let mailOptions = {
       from: 'ckloudrac@gmail.com', // TODO: email sender
        to: email, // TODO: email receiver
-       subject: 'Email Test from nodemaile',
-      text: 'Wooohooo it works!!'
+       subject: 'Chat App: Forgot Password',
+      text: 'Please click the below link to generate new password',
+      html: '<p><a href="http://localhost:5000/users/regeneratePassword/'+sfid +'">click to resest your password</a></p>' 
          };
 
        // Step 3
        transporter.sendMail(mailOptions, (err, data) => {
          if (err) {
-         return log('Error occurs');
+          console.log('Error occurred. ' + err.message);
+          return process.exit(1);
                  }
-        return log('Email sent!!!');
+         console.log('Message sent: %s', info.messageId);
+        response.send('Email sent!!!');
                  });
-
-
      })
 
+  router.get('/regeneratePassword/:userId',(request,response)=>{
+  let userId = request.params.userId;
+  console.log('userId  : '+userId);
+  response.render('regeneratePassword.ejs',{userId});
+      })
+  router.post('/updatePass',(request,response)=>{
+  console.log('BODy'+JSON.stringify(request.body));
+  let errors = [];
+  const { pass ,pass2, user}=request.body;
 
-//Login Page
-router.get('/login',(request, response) => {
-  response.render('login.ejs');
-})
+        if(!pass || !pass2) {
+                               errors.push({ msg: 'Please Fill all fields'});
+                             }
 
+         if(pass !== pass2) {
+                               errors.push({ msg: 'Passwords do not match'});
+                             }
 
-router.post('/loginPost',async (request, response) => {
-  
-  const {email, password} = request.body;
-  console.log('email : '+email+' passoword '+password);
+          if(pass.length <6) {
+                               errors.push({ msg: 'Passwords should be atleast 6 character'});
+                             }
+ 
+       if(errors.length > 0)
+         {
+             response.render('regeneratePassword',{errors});
+        }
+        else {
 
-  let errors = [], userId, objUser, isUserExist = false;
-
-  if (!email || !password) {
-    errors.push({ msg: 'Please enter all fields' });
-    response.render('login',{errors});
-  }
-
-   await
-   pool
-   .query('SELECT Id, sfid,name, email FROM salesforce.Contact WHERE email = $1 AND password__c = $2',[email,password])
-  .then((loginResult) => {
-    console.log('loginResult.rows[0]  '+JSON.stringify(loginResult.rows[0]));
-        if(loginResult.rowCount > 0 )
-        {
-          userId = loginResult.rows[0].sfid;
-          objUser = loginResult.rows[0];
-         // isUserExist = true;
-          if(errors.length == 0){
-            const token = jwt.sign({ user : objUser }, process.env.TOKEN_SECRET, {
-              expiresIn: 8640000 // expires in 24 hours
-            });
-              response.cookie('jwt',token, { httpOnly: false, secure: false, maxAge: 3600000 });
-              response.header('auth-token', token).render('dashboard.ejs',{objUser}); 
-
-//Contact Info Page
-
-              router.get('/Contact',(request, response) => {
+              let updateQuerryPass='UPDATE salesforce.contact SET '+
+              'password__c = \''+pass+'\' '+
+              'WHERE sfid = $1';
+               console.log('update query'+updateQuerryPass);
                 pool
-           .query('SELECT sfid, name, Email, Phone, MailingPostalCode FROM salesforce.Contact WHERE email = $1 ',[email])
-           .then((contactQueryResult) => {
-             console.log('contactQueryResult.rows[0]  '+JSON.stringify(contactQueryResult.rows[0]));
-                if(contactQueryResult.rowCount > 0 )
-                {
-                  userId = contactQueryResult.rows[0].sfid;
-                  objUser2 = contactQueryResult.rows[0];
-                   response.render('contactInfoForm.ejs',{objUser2}); 
- //Contact Update
-                   pool
-                   .query('UPDATE salesforce.Contact SET name = name, email = email, phone = phone, pincode = MailingPostalCode',
-                   WHERE [Id = sfid])
-                   .then((contactUpdateQueryResult)=>{
-                     console.log('contactUpdateQueryResult.rows : '+JSON.stringify(contactUpdateQueryResult));
-                       /******* Successfully  Updated*/
-                       response.redirect('/users/login');
-                   })
-                   .catch((contactUpdateQueryError)=> {
-                     console.log('contactUpdateQueryError '+contactUpdateQueryError);
-                     response.render('register.ejs');
-                   })  
+                  .query(updateQuerryPass,[user])
+                   .then((querryResult)=>{
+                   console.log('querryResult'+JSON.stringify(querryResult));
+                   response.send('New Password Generated Successfully');
+                                         })
+               .catch((queryyError)=>{
+                console.log('queryyError'+queryyError.stack);
+                response.send('queryyError');
+                                     })
 
-                }})
-             .catch((InfoError) =>{
-              console.log('InfoError   :  '+InfoError.stack);
-               isUserExist = false;
-               });
-         
-             });
-          }
-          else
-          {
-           response.render('login',{errors});
-          }
-       
-       }})
-        .catch((loginError) =>{
-         console.log('loginError   :  '+loginError.stack);
-          isUserExist = false;
-          });
+              }
   
-        });
+           })
 
-        //chatter.ejs
+//chatter.ejs
 
         router.get('/chatter',(request, response) => {
           response.render('chatter.ejs');
@@ -290,7 +395,6 @@ router.post('/register',(request, response) => {
 
        
       }
-
           
 
 /*      pool
@@ -308,11 +412,9 @@ router.post('/register',(request, response) => {
 })
 
 
-
 router.get('/imageUploadForm',(request, response) => {
   response.render('imageUpload');
 })
-
 
 
 var storage = multer.diskStorage({

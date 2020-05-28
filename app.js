@@ -9,12 +9,12 @@ const flash = require('connect-flash');
 const session = require('express-session');
 
 dotenv.config();
-
+var app = express();
 
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 //var emailRouter = require('./routes/users/sendEmail');
-var app = express();
+
 
 //EJS
 app.set('views', path.join(__dirname, 'views'));
@@ -36,7 +36,7 @@ app.use('/users', usersRouter);
 
 const PORT =process.env.PORT || 5000;
 
-app.listen(PORT, console.log('Server started on port ${PORT}'))
+app.listen(PORT, console.log('Server started on port'+ PORT))
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
   next(createError(404));
@@ -54,7 +54,6 @@ app.use(
 // Connect flash
 app.use(flash());
 
-
 // Global variables
 app.use(function(req, res, next) {
   res.locals.success_msg = req.flash('success_msg');
@@ -62,6 +61,7 @@ app.use(function(req, res, next) {
   res.locals.error = req.flash('error');
   next();
 });
+
 
 // error handler
 app.use(function(err, req, res, next) {
